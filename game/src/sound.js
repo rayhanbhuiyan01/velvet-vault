@@ -1,6 +1,7 @@
-// Sound, synthesised with WebAudio: no audio files, no network. Everything is a short
-// oscillator blip, so the game stays a handful of static files. Sound starts on the first user
-// gesture (a browser rule) and can be muted with M.
+// Synthesised sound, no audio files: every effect is a few WebAudio
+// oscillators shaped by a gain envelope. The context is built lazily on the
+// first user gesture, so a quiet page load stays quiet.
+
 export function createSound() {
   let context = null;
   let muted = false;
@@ -18,22 +19,26 @@ export function createSound() {
     return context;
   }
 
-  function tone(freq, seconds, type, gainValue, when = 0) {
+  function tone(freq, dur, type, volume, when, slideTo) {
     const ctx = ensure();
     if (!ctx || muted) return;
-    const oscillator = ctx.createOscillator();
+    const start = ctx.currentTime + (when || 0);
+    const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    oscillator.type = type;
-    oscillator.frequency.value = freq;
-    gain.gain.setValueAtTime(gainValue, ctx.currentTime + when);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + when + seconds);
-    oscillator.connect(gain);
+    osc.type = type || 'sine';
+    osc.frequency.setValueAtTime(freq, start);
+    if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, start + dur);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(volume || 0.12, start + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    osc.connect(gain);
     gain.connect(ctx.destination);
-    oscillator.start(ctx.currentTime + when);
-    oscillator.stop(ctx.currentTime + when + seconds);
+    osc.start(start);
+    osc.stop(start + dur + 0.05);
   }
 
   return {
+    /** Call from any user gesture so the browser lets audio start. */
     unlock() {
       ensure();
     },
@@ -41,26 +46,29 @@ export function createSound() {
       muted = !muted;
       return muted;
     },
+    isMuted() {
+      return muted;
+    },
     pickup() {
-      tone(660, 0.09, 'sine', 0.12);
-      tone(990, 0.14, 'sine', 0.12, 0.07);
+      tone(660, 0.1, 'sine', 0.12);
+      tone(990, 0.16, 'sine', 0.12, 0.08);
     },
     coin() {
-      tone(1200, 0.06, 'square', 0.05);
+      tone(1568, 0.07, 'triangle', 0.1);
+      tone(2093, 0.09, 'triangle', 0.08, 0.06);
     },
-    spotted() {
-      tone(880, 0.08, 'square', 0.06);
+    alarmBeep() {
+      tone(880, 0.09, 'square', 0.05);
     },
     caught() {
-      tone(392, 0.2, 'sawtooth', 0.1);
-      tone(262, 0.3, 'sawtooth', 0.1, 0.16);
-      tone(175, 0.45, 'sawtooth', 0.1, 0.32);
+      tone(392, 0.25, 'sawtooth', 0.12, 0, 196);
+      tone(196, 0.5, 'sawtooth', 0.12, 0.2, 98);
     },
-    win() {
+    escape() {
       tone(523, 0.12, 'sine', 0.12);
       tone(659, 0.12, 'sine', 0.12, 0.1);
       tone(784, 0.12, 'sine', 0.12, 0.2);
-      tone(1047, 0.25, 'sine', 0.12, 0.3);
+      tone(1047, 0.3, 'sine', 0.12, 0.3);
     },
   };
 }

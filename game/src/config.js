@@ -1,148 +1,130 @@
-// The Velvet Vault — every tuning number, colour and the whole floor plan in one place.
-// The playfield is a fixed 1280x720 logical area; the renderer scales it to the window, so no
-// rule below depends on the screen size. The museum floor is one room the thief crosses:
-// entry bottom-left, the Star of Meridian diamond in the vault top-right, exit bottom-right.
+// The Velvet Vault — every number that tunes the heist, in one place.
+// The museum floor is a fixed 1280x720 logical space; the renderer scales it
+// to the window, so nothing below depends on the screen size.
+
 export const FIELD = { width: 1280, height: 720 };
 
-/** The simulation's fixed step, in seconds: 60 updates a second whatever the display's rate. */
+// Outer wall thickness; the playable floor is the rectangle inside it.
+export const WALL = 24;
+
+/** Fixed simulation step, in seconds: 60 updates a second, whatever the display does. */
 export const STEP = 1 / 60;
 
 export const THIEF = {
   radius: 14,
-  walkSpeed: 210,
-  sneakSpeed: 110,
-  /** Sneaking halves how fast the alarm climbs while the thief is seen. */
-  sneakSpotFactor: 0.5,
+  walkSpeed: 205,
+  sneakSpeed: 115,
+  startX: 90,
+  startY: 620,
 };
 
-export const GUARD = {
-  radius: 14,
-  patrolSpeed: 78,
-  huntSpeed: 135,
-  /** Vision cone: how far a guard can see, and half its spread. */
-  viewRange: 235,
-  viewHalfAngle: Math.PI / 5.2, // ~35 degrees
-  /** Alarm points per second while the thief stands in a guard's cone. */
-  spotRate: 46,
-  /** Above this alarm the nearest guard hunts the thief; below this it gives up. */
-  huntAbove: 55,
-  giveUpBelow: 38,
+/** Vision: how far a guard or a camera can spot the thief, and how wide its cone is. */
+export const VISION = {
+  guardRange: 250,
+  guardHalfAngle: 0.62,
+  cameraRange: 300,
+  cameraHalfAngle: 0.55,
 };
 
-export const CAMERA = {
-  viewRange: 285,
-  viewHalfAngle: Math.PI / 6, // 30 degrees
-  spotRate: 32,
-  sweepSpeed: 0.55, // radians per second
-};
-
+/** Alarm 0..100. Seen by a guard it climbs fast; a camera is a little slower.
+ *  Sneaking halves the climb. Hidden, it drains at ALARM_DECAY per second. */
 export const ALARM = {
-  max: 100,
-  /** Points per second the alarm falls while nobody sees the thief. */
+  guardRate: 65,
+  cameraRate: 55,
   decay: 12,
+  caughtAt: 100,
+  sneakFactor: 0.5,
+  warnAt: 55,
 };
 
-export const COIN = {
-  /** Decoy coins the thief carries; a mouse click tosses one. */
-  count: 3,
-  /** How far from the thief a tossed coin may land. */
-  throwRange: 320,
-  /** A guard this close to where a coin lands walks over to look. */
-  lureRadius: 380,
-  investigateSeconds: 4,
-};
+export const COINS = { start: 3, lureRange: 430, ringSeconds: 6 };
 
-/** Walls block movement and sight. Display cases do the same (low, but solid). */
-export const WALLS = [
-  // Outer walls (thickness 20).
-  { x: 0, y: 0, width: 1280, height: 20 },
-  { x: 0, y: 700, width: 1280, height: 20 },
-  { x: 0, y: 0, width: 20, height: 720 },
-  { x: 1260, y: 0, width: 20, height: 720 },
-  // Interior partition, left of centre: two segments with a doorway between them.
-  { x: 400, y: 20, width: 20, height: 240 },
-  { x: 400, y: 460, width: 20, height: 240 },
-  // Interior partition, right of centre: two segments with a doorway between them.
-  { x: 860, y: 20, width: 20, height: 240 },
-  { x: 860, y: 460, width: 20, height: 240 },
-  // The vault's walls (top-right corner): a room with one door at its bottom-left.
-  { x: 1020, y: 260, width: 240, height: 20 },
-  { x: 1020, y: 20, width: 20, height: 140 },
-];
-
-/** Display cases: solid furniture the thief and the guards walk around. */
-export const CASES = [
-  { x: 520, y: 120, width: 120, height: 60 }, // gold bar rests just below it
-  { x: 760, y: 480, width: 120, height: 60 }, // emerald rests just below it
-  { x: 180, y: 300, width: 120, height: 60 }, // painting case
-  { x: 180, y: 560, width: 140, height: 56 }, // sculpture plinth, by the entry
-];
-
-/** Every solid rectangle: walls and cases together. */
-export const SOLIDS = [...WALLS, ...CASES];
-
-/** The three loot pieces. The diamond sits inside the vault, behind its door. */
+/** The three loot pieces, in the order a careful thief pockets them. */
 export const LOOT = [
-  { id: 'gold', name: 'Gold Bar', x: 580, y: 205, value: 100, radius: 16 },
-  { id: 'emerald', name: 'Emerald', x: 760, y: 575, value: 150, radius: 16 },
-  { id: 'diamond', name: 'Star of Meridian', x: 1150, y: 120, value: 400, radius: 20 },
+  { id: 'gold', name: 'Gold Bar', value: 100, x: 380, y: 285 },
+  { id: 'emerald', name: 'Emerald', value: 150, x: 720, y: 545 },
+  { id: 'diamond', name: 'Star of Meridian', value: 400, x: 1130, y: 200 },
 ];
 
-export const ENTRY = { x: 70, y: 640 };
-export const EXIT = { x: 1210, y: 640, width: 50, height: 60 };
+/** Solid display cases and plinths the thief (and a tossed coin's lure) must walk around. */
+export const CASES = [
+  { x: 300, y: 150, w: 160, h: 70, label: 'Gold Room case' },
+  { x: 640, y: 420, w: 160, h: 70, label: 'Emerald case' },
+  { x: 180, y: 480, w: 120, h: 60, label: 'Marble plinth' },
+  { x: 520, y: 120, w: 90, h: 90, label: 'Sculpture' },
+];
 
-/** Guard patrol routes: waypoints each guard walks in a loop. */
+/** The vault in the top-right corner: two walls with a single door gap between them. */
+export const VAULT = {
+  // Vertical wall: x 980..1004, y 24..300. Horizontal wall: y 380..404, x 980..1256.
+  wallV: { x: 980, y: 24, w: 24, h: 276 },
+  wallH: { x: 980, y: 380, w: 276, h: 24 },
+  // The gap the thief slips through, and the doorway's centre.
+  doorX: 992,
+  doorY: 340,
+};
+
+/** The exit doorway in the bottom wall; it only opens once every loot piece is pocketed. */
+export const EXIT = { x: 580, y: 660, w: 120, h: 36 };
+
 export const GUARDS = [
-  { name: 'Rook', waypoints: [{ x: 340, y: 200 }, { x: 340, y: 520 }], speed: 72 },
-  { name: 'Bishop', waypoints: [{ x: 760, y: 120 }, { x: 760, y: 420 }], speed: 84 },
   {
-    name: 'Knight',
-    waypoints: [
-      { x: 950, y: 330 },
-      { x: 1180, y: 330 },
-      { x: 1180, y: 560 },
-      { x: 950, y: 560 },
-    ],
-    speed: 78,
+    name: 'Marlowe',
+    x: 180, y: 330,
+    waypoints: [{ x: 180, y: 330 }, { x: 860, y: 330 }],
+    speed: 92,
+  },
+  {
+    name: 'Vesper',
+    x: 880, y: 110,
+    waypoints: [{ x: 880, y: 110 }, { x: 880, y: 600 }],
+    speed: 80,
+  },
+  {
+    name: 'Otto',
+    x: 320, y: 585,
+    waypoints: [{ x: 320, y: 585 }, { x: 1020, y: 585 }],
+    speed: 102,
   },
 ];
 
-/** Wall cameras: a fixed mount, a centre angle and how far it sweeps each way. */
 export const CAMERAS = [
-  { x: 640, y: 26, centre: Math.PI / 2, sweep: 1.05 }, // top wall, looks down
-  { x: 1254, y: 420, centre: Math.PI, sweep: 0.9 }, // right wall, looks left
+  { x: 500, y: 24, sweepMin: 0.7, sweepMax: 2.44, sweepSpeed: 0.55, startAngle: 1.57 },
+  { x: 1256, y: 500, sweepMin: 2.24, sweepMax: 4.04, sweepSpeed: 0.45, startAngle: Math.PI },
 ];
 
+/** Escape bonus: up to 400 for speed, plus 25 per unthrown decoy coin. */
+export const BONUS = { timeMax: 400, timePerSecond: 8, perCoin: 25 };
+
 export const PALETTE = {
-  backdrop: '#0b0d12',
-  floorA: '#171a21',
-  floorB: '#1c2029',
-  wall: '#3a4152',
-  wallTop: '#4a5266',
-  case: '#2b3242',
-  caseGlass: '#5d7290',
-  vault: '#241d10',
-  vaultDoor: '#8a6d2f',
-  exit: '#1f7a44',
-  exitGlow: '#2fd06a',
-  thief: '#7b5cff',
-  thiefCloak: '#4a3499',
-  guard: '#e8b13c',
-  guardBody: '#2f6fb2',
-  coneGuard: 'rgba(232, 177, 60, 0.20)',
-  coneCamera: 'rgba(255, 80, 80, 0.16)',
-  coneEdge: 'rgba(232, 177, 60, 0.35)',
-  lootGold: '#f2c94c',
-  lootEmerald: '#37d67a',
-  lootDiamond: '#7fe7ff',
+  backdrop: '#0a0812',
+  floorA: '#1c1626',
+  floorB: '#221a30',
+  wall: '#171221',
+  wallTrim: '#8a6d2f',
+  vaultWall: '#2c2338',
+  vaultGlow: '#c9a227',
+  caseGlass: '#3a4a63',
+  caseEdge: '#7d90b5',
+  thief: '#e8e4f0',
+  thiefCloak: '#4a3a6e',
+  guard: '#2e4a7a',
+  guardCap: '#1c2f52',
+  cone: 'rgba(242, 201, 76, 0.16)',
+  coneAlert: 'rgba(229, 83, 75, 0.28)',
+  cameraCone: 'rgba(120, 180, 255, 0.13)',
+  gold: '#f2c94c',
+  emerald: '#3ecf6e',
+  diamond: '#bfe9ff',
+  exitLocked: '#7a2e2e',
+  exitOpen: '#2fae5f',
+  hud: '#eef1f5',
+  muted: '#9a93ad',
   alarm: '#e5534b',
-  alarmTrack: '#3a2020',
-  text: '#eef1f5',
-  muted: '#9aa3b2',
-  panel: '#20242e',
+  panel: '#171221',
 };
 
 export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
-/** Where the best score is kept between visits (this browser only). */
+/** Where the best getaway score is kept between visits (this browser only). */
 export const BEST_KEY = 'velvet-vault.best';

@@ -1,19 +1,25 @@
-// Boot and the one loop: input is read every frame, the world advances in fixed 1/60 s steps
-// (several in a slow frame, none in a fast one), and the renderer paints what is there. The game
-// moves between five screens: title, play, paused, caught and escaped (clean getaway).
+// Boot and the one loop: input is read every frame, the world advances in
+// fixed 1/60 s steps (several in a slow frame, none in a fast one), and the
+// renderer paints what is there. The game moves between five screens: title,
+// play, paused, caught and clean getaway.
 //
-// ?seed=N fixes the guard and camera phases. ?shot=start|play|end (with &seed=N) stages that
-// scene instead of running the loop, paints it twice and sets window.__shotReady for a screenshot.
-import { BEST_KEY, FIELD, STEP } from './config.js';
+// ?seed=N fixes the guards' and cameras' starting shuffle. ?shot=start|play|end
+// (with &seed=N) stages that scene instead of running the loop, paints it
+// twice and sets window.__shotReady for a screenshot.
+import { BEST_KEY, STEP } from './config.js';
 import { createRandom } from './random.js';
-import { createWorld, EVENT_CAUGHT, EVENT_COIN, EVENT_ESCAPED, EVENT_LOOT, EVENT_SPOTTED } from './world.js';
+import { createWorld, EVENT_CAUGHT, EVENT_COIN, EVENT_ESCAPED, EVENT_PICKUP, EVENT_SEEN } from './world.js';
 import { ACTION_CONFIRM, ACTION_MUTE, ACTION_PAUSE, createInput } from './input.js';
-import { createRenderer, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_WIN } from './render.js';
-import { stageShot } from './shots.js';
 import { createSound } from './sound.js';
+import {
+  createRenderer, SCREEN_CAUGHT, SCREEN_ESCAPED, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE,
+} from './render.js';
+import { stageShot } from './shots.js';
 
 /** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped, not replayed. */
 const MAX_FRAME = 0.25;
+/** How often the alarm beeps while it is high, in seconds. */
+const ALARM_BEEP_EVERY = 0.5;
 
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
@@ -55,45 +61,35 @@ function runShot(name) {
 }
 
 function runGame() {
-  // Click points arrive in canvas pixels; the world works in playfield coordinates.
-  const input = createInput(canvas, (px, py) => {
-    const rect = canvas.getBoundingClientRect();
-    const scale = Math.min(rect.width / FIELD.width, rect.height / FIELD.height);
-    const offsetX = (rect.width - FIELD.width * scale) / 2;
-    const offsetY = (rect.height - FIELD.height * scale) / 2;
-    return {
-      x: (px - offsetX) / scale,
-      y: (py - offsetY) / scale,
-    };
-  });
+  const input = createInput(canvas, renderer.screenToWorld);
   let screen = SCREEN_TITLE;
   let best = readBest();
   let accumulator = 0;
   let last = performance.now();
-  let wasSpotted = false;
+  let beepIn = 0;
 
-  // Screen readers (and anyone watching the page's text) hear the screen changes and each event.
+  // Screen readers (and anyone watching the page's text) hear the screen changes and the big moments.
   function announce(message) {
     status.textContent = message;
   }
 
   function startGame() {
-    sound.unlock();
     world.reset();
     accumulator = 0;
+    beepIn = 0;
     screen = SCREEN_PLAY;
-    wasSpotted = false;
-    announce('Playing. Pocket the loot, then reach the exit.');
+    sound.unlock();
+    announce('Playing. Three treasures to steal, then the exit.');
   }
 
-  function endGame(won) {
-    screen = won ? SCREEN_WIN : SCREEN_OVER;
+  function finishGame(escaped) {
+    screen = escaped ? SCREEN_ESCAPED : SCREEN_CAUGHT;
     if (world.state.score > best) {
       best = world.state.score;
       saveBest(best);
     }
-    if (won) {
-      sound.win();
+    if (escaped) {
+      sound.escape();
       announce(`Clean getaway. Score ${world.state.score}. Best ${best}.`);
     } else {
       sound.caught();
@@ -105,9 +101,9 @@ function runGame() {
     const actions = input.takeActions();
     if (actions & ACTION_MUTE) {
       const muted = sound.toggleMute();
-      announce(muted ? 'Sound off.' : 'Sound on.');
+      announce(muted ? 'Muted.' : 'Sound on.');
     }
-    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER || screen === SCREEN_WIN)) {
+    if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_CAUGHT || screen === SCREEN_ESCAPED)) {
       startGame();
     } else if (actions & ACTION_PAUSE && screen === SCREEN_PLAY) {
       screen = SCREEN_PAUSED;
@@ -120,17 +116,25 @@ function runGame() {
 
   function step() {
     if (screen === SCREEN_TITLE) {
-      world.step(STEP, { x: 0, y: 0 }, false, true, null);
+      world.step(STEP, { x: 0, y: 0 }, false, true);
       return;
     }
-    const coinTarget = screen === SCREEN_PLAY ? input.takeCoinTarget() : null;
-    const events = world.step(STEP, input.direction(), input.sneaking(), false, coinTarget);
-    if (events & EVENT_LOOT) sound.pickup();
-    if (events & EVENT_COIN) sound.coin();
-    if (events & EVENT_SPOTTED && !wasSpotted) sound.spotted();
-    wasSpotted = Boolean(events & EVENT_SPOTTED);
-    if (events & EVENT_CAUGHT) endGame(false);
-    else if (events & EVENT_ESCAPED) endGame(true);
+    const toss = input.takeToss();
+    if (toss && screen === SCREEN_PLAY) {
+      if (world.tossCoin(toss.x, toss.y)) sound.coin();
+    }
+    const events = world.step(STEP, input.move(), input.sneaking(), false);
+    if (events & EVENT_PICKUP) sound.pickup();
+    else if (events & EVENT_COIN) sound.coin();
+    if (events & EVENT_SEEN && world.state.alarm >= 55) {
+      beepIn -= STEP;
+      if (beepIn <= 0) {
+        sound.alarmBeep();
+        beepIn = ALARM_BEEP_EVERY;
+      }
+    }
+    if (events & EVENT_CAUGHT) finishGame(false);
+    else if (events & EVENT_ESCAPED) finishGame(true);
   }
 
   function frame(now) {
@@ -149,7 +153,7 @@ function runGame() {
     renderer.draw(world.state, screen, best);
   }
 
-  // Leaving the tab pauses a running game rather than letting the guards close in unseen.
+  // Leaving the tab pauses a running game rather than letting the alarm climb unseen.
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && screen === SCREEN_PLAY) {
       screen = SCREEN_PAUSED;
@@ -157,7 +161,7 @@ function runGame() {
     }
   });
 
-  announce('The Velvet Vault. Press Space or click to start the heist.');
+  announce('The Velvet Vault. Press Space or click to begin the heist.');
   requestAnimationFrame(frame);
 }
 
